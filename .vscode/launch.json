@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run scada_scanner (--help)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}\scada_scanner.py",
+      "args": ["--help"],
+      "console": "integratedTerminal"
+    }
+  ]
+}

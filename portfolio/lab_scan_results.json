@@ -1,0 +1,83 @@
+{
+  "scan_summary": {
+    "timestamp": "2026-09-16T03:47:32.743158+00:00",
+    "total_hosts_scanned": 1,
+    "hosts_with_scada": 1,
+    "total_vulnerabilities": 0,
+    "high_risk_hosts": 0
+  },
+  "hosts": [
+    {
+      "ip": "127.0.0.1",
+      "ports": [
+        {
+          "port": 502,
+          "protocol": "MODBUS",
+          "fingerprint": {
+            "protocol": "MODBUS",
+            "confidence": 0.25,
+            "vendor": "Unknown",
+            "product": "Unknown",
+            "version": "Unknown",
+            "vulnerabilities": [],
+            "risk_score": 0.35,
+            "behaviors": [],
+            "findings": [
+              "Detected MODBUS protocol (confidence: 0.25)",
+              "MODBUS is insecure by design (unencrypted/unauthenticated)",
+              "Overall risk assessment: Medium (score: 0.35)"
+            ],
+            "evidence": [
+              "pattern:5c7830305b5c7830302d5c7866665d7b327d5c7830305c7830305b5c7830302d5c7830385d",
+              "port_hint:502"
+            ],
+            "unexpected_port": false
+          }
+        }
+      ],
+      "protocols": [
+        "MODBUS"
+      ],
+      "vendors": [],
+      "products": [],
+      "vulnerabilities": [],
+      "max_risk_score": 0.35
+    }
+  ],
+  "raw_results": [
+    {
+      "ip": "127.0.0.1",
+      "port": 502,
+      "protocol": "MODBUS",
+      "response": "000100000003008001",
+      "response_hash": "4bd44222898ed7f77d90ea921c635085",
+      "timestamp": "2026-09-16T03:46:43.390530+00:00",
+      "connection_id": "1152",
+      "fingerprint": {
+        "protocol": "MODBUS",
+        "confidence": 0.25,
+        "vendor": "Unknown",
+        "product": "Unknown",
+        "version": "Unknown",
+        "vulnerabilities": [],
+        "risk_score": 0.35,
+        "behaviors": [],
+        "findings": [
+          "Detected MODBUS protocol (confidence: 0.25)",
+          "MODBUS is insecure by design (unencrypted/unauthenticated)",
+          "Overall risk assessment: Medium (score: 0.35)"
+        ],
+        "evidence": [
+          "pattern:5c7830305b5c7830302d5c7866665d7b327d5c7830305c7830305b5c7830302d5c7830385d",
+          "port_hint:502"
+        ],
+        "unexpected_port": false
+      },
+      "metadata": {
+        "scan_time": "2026-09-16T03:46:43.517893+00:00",
+        "scanner_version": "0.3",
+        "risk_score": 0.35
+      }
+    }
+  ]
+}

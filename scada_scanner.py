@@ -128,8 +128,8 @@ class TokenBucket:
 class PortProtocol:
     """Port and protocol mapping"""
     port: int
+    transport: str
     protocol: str
-    service: str
     description: str
     probes: List[bytes] = field(default_factory=list)
     timeout: int = 5
@@ -845,6 +845,19 @@ class SCADAScanner:
                 # Add version findings
                 finding = f"Detected version: {version_info['version']}"
                 fingerprint['findings'].append(finding)
+
+                # Populate vendor/product from Modbus device-identification objects
+                # (VendorName=obj 0, ProductCode=obj 1) when not already identified.
+                det = version_info.get('details') or {}
+                if isinstance(det, dict):
+                    if fingerprint['vendor'] == 'Unknown' and det.get(0):
+                        fingerprint['vendor'] = det[0]
+                    if fingerprint['product'] == 'Unknown' and det.get(1):
+                        fingerprint['product'] = det[1]
+                    if fingerprint['vendor'] != 'Unknown' or fingerprint['product'] != 'Unknown':
+                        fingerprint['findings'].append(
+                            f"Device identification: vendor={fingerprint['vendor']}, "
+                            f"product={fingerprint['product']}")
             
             # Check for known vulnerabilities
             vulnerabilities = self._check_vulnerabilities(
@@ -936,7 +949,7 @@ class SCADAScanner:
                 confidence = (pattern_matches + response_matches * 2) / (total_patterns * 2)
                 
                 # Port hint bonus when service matches protocol
-                if port_hint and port_hint.service == protocol and confidence > 0:
+                if port_hint and port_hint.protocol == protocol and confidence > 0:
                     confidence = min(1.0, confidence + 0.15)
                     evidence.append(f"port_hint:{port_hint.port}")
                 
@@ -957,9 +970,9 @@ class SCADAScanner:
 
     def _protocol_hint_from_port(self, port: PortProtocol) -> Optional[Dict]:
         """Fallback protocol hint based purely on well-known ports"""
-        if port and port.service:
+        if port and port.protocol:
             return {
-                'protocol': port.service,
+                'protocol': port.protocol,
                 'confidence': 0.35,  # less than passive match, but still useful
                 'evidence': [f"port_hint:{port.port}"]
             }
@@ -971,7 +984,7 @@ class SCADAScanner:
 
     def _expected_protocols_for_port(self, port_number: int) -> List[str]:
         """Return list of expected protocols for a given port"""
-        return list({p.service for p in SCADA_PORTS if p.port == port_number})
+        return list({p.protocol for p in SCADA_PORTS if p.port == port_number})
 
     def _identify_vendor(self, response: bytes) -> Optional[Dict]:
         """Identify vendor and product from response patterns"""
@@ -1291,12 +1304,13 @@ class SCADAScanner:
         try:
             # Check if response is a Modbus Device ID response (0x2B/0x0E)
             if len(response) > 8 and response[7] == 0x2B and response[8] == 0x0E:
-                # Extract object values
+                # Extract object values.
+                # Layout after 7-byte MBAP header: FC(7) MEI(8) ReadDevIDcode(9)
+                # ConformityLevel(10) MoreFollows(11) NextObjectId(12)
+                # NumberOfObjects(13), objects begin at offset 14.
                 objects = {}
-                pos = 10
-                
-                # Object count is at position 9
-                object_count = response[9]
+                object_count = response[13]
+                pos = 14
                 
                 for _ in range(object_count):
                     if pos + 2 >= len(response):
@@ -1319,7 +1333,7 @@ class SCADAScanner:
                 # Object ID 5: Product Name
                 # Object ID 6: Model Name
                 # Object ID 7: User Application Name
-                version = objects.get(3, "Unknown")
+                version = objects.get(2, objects.get(3, "Unknown"))
                 
                 return {
                     'version': version,
@@ -1943,6 +1957,142 @@ async def scan_single_target(ip: str, config: ScanConfig) -> List[Dict]:
     
     return results
 
+def _collect_scan_targets(args: argparse.Namespace) -> Tuple[List[ipaddress._BaseNetwork], List[str]]:
+    """Collect every network/address the run intends to touch.
+
+    Returns a tuple of (parsed networks, unresolved specs). Unresolved specs are
+    entries we could not parse as an IP/CIDR (e.g. hostnames); they are treated
+    as potentially public during the safety preflight.
+    """
+    specs: List[str] = []
+    if args.target:
+        specs.append(args.target)
+    elif args.cidr:
+        specs.append(args.cidr)
+    elif args.cidr_file:
+        with open(args.cidr_file) as f:
+            specs.extend(
+                line.strip() for line in f
+                if line.strip() and not line.startswith('#')
+            )
+
+    networks: List[ipaddress._BaseNetwork] = []
+    unresolved: List[str] = []
+    for spec in specs:
+        try:
+            # strict=False so host bits in a CIDR don't raise
+            networks.append(ipaddress.ip_network(spec, strict=False))
+        except ValueError:
+            unresolved.append(spec)
+    return networks, unresolved
+
+
+def _is_public_network(net: ipaddress._BaseNetwork) -> bool:
+    """True if any part of the network is a globally-routable public address."""
+    if net.is_private or net.is_loopback or net.is_link_local or net.is_multicast:
+        return False
+    if net.is_reserved or net.is_unspecified:
+        return False
+    # Carrier-grade NAT (100.64.0.0/10) is not "yours" either, but it is also
+    # not globally routable; treat only genuinely global space as public.
+    return bool(getattr(net, "is_global", not net.is_private))
+
+
+def authorization_preflight(args: argparse.Namespace) -> None:
+    """Gate scanning behind an explicit legal/authorization check.
+
+    - Summarizes the exact scope (ranges + host count) before anything is sent.
+    - Refuses to touch publicly-routable addresses unless --allow-public is set.
+    - Requires an interactive authorization confirmation, unless the operator
+      asserts written authorization via --i-am-authorized.
+
+    Exits the process (non-zero) if the run is not cleared to proceed.
+    """
+    networks, unresolved = _collect_scan_targets(args)
+
+    if not networks and not unresolved:
+        logger.error("No valid scan targets found. Nothing to do.")
+        sys.exit(2)
+
+    public_nets = [n for n in networks if _is_public_network(n)]
+    private_nets = [n for n in networks if not _is_public_network(n)]
+    total_hosts = sum(n.num_addresses for n in networks)
+
+    # Legal banner
+    print("\n" + "=" * 70)
+    print(" AUTHORIZATION & LEGAL PREFLIGHT")
+    print("=" * 70)
+    print(" This tool actively probes hosts and can disrupt fragile ICS/SCADA")
+    print(" equipment. Scanning systems without permission may violate laws")
+    print(" such as the US Computer Fraud and Abuse Act, the UK Computer")
+    print(" Misuse Act, and equivalents elsewhere. You are solely responsible")
+    print(" for having written authorization covering this exact scope.")
+    print("-" * 70)
+
+    # Scope summary
+    print(" Scan scope:")
+    for n in networks:
+        kind = "PUBLIC/ROUTABLE" if _is_public_network(n) else "private/internal"
+        print(f"   - {n}  ({n.num_addresses} address(es)) [{kind}]")
+    for spec in unresolved:
+        print(f"   - {spec}  [hostname/unresolved -> treated as PUBLIC]")
+    print(f" Total addresses in scope: {total_hosts}")
+    print(f" Safe mode: {'ON' if args.safe_mode else 'OFF (aggressive probes)'}")
+    print("=" * 70 + "\n")
+
+    # Public-address guard
+    has_public = bool(public_nets or unresolved)
+    if has_public and not args.allow_public:
+        logger.error(
+            "Refusing to scan publicly-routable or unresolved targets without "
+            "--allow-public. Re-run with --allow-public ONLY if your written "
+            "authorization explicitly covers these addresses."
+        )
+        for n in public_nets:
+            logger.error(f"  blocked (public): {n}")
+        for spec in unresolved:
+            logger.error(f"  blocked (unresolved/hostname): {spec}")
+        sys.exit(3)
+
+    # Aggressive scan against production without safe-mode: nudge, don't block.
+    if not args.safe_mode:
+        logger.warning(
+            "Safe mode is OFF. Aggressive probes may destabilize sensitive ICS "
+            "devices. Consider --safe-mode for production environments."
+        )
+
+    # Authorization confirmation
+    if args.i_am_authorized:
+        logger.info(
+            "Operator asserted written authorization via --i-am-authorized. "
+            "Proceeding without interactive confirmation."
+        )
+        return
+
+    if not sys.stdin.isatty():
+        logger.error(
+            "No interactive terminal to confirm authorization. Re-run with "
+            "--i-am-authorized to assert (and take responsibility for) written "
+            "authorization for this scope."
+        )
+        sys.exit(4)
+
+    try:
+        prompt = (
+            " Confirm you have WRITTEN authorization to scan the scope above.\n"
+            " Type 'I AM AUTHORIZED' to proceed, anything else to abort: "
+        )
+        answer = input(prompt).strip()
+    except (EOFError, KeyboardInterrupt):
+        answer = ""
+
+    if answer != "I AM AUTHORIZED":
+        logger.error("Authorization not confirmed. Aborting scan.")
+        sys.exit(5)
+
+    logger.info("Authorization confirmed by operator. Proceeding with scan.")
+
+
 async def main(args: argparse.Namespace) -> None:
     """Main execution function"""
     exclude_ips: List[str] = []
@@ -2021,6 +2171,10 @@ if __name__ == "__main__":
     parser.add_argument('--timeout', type=int, default=5, help='Timeout in seconds (default: 5)')
     parser.add_argument('--max-concurrent', type=int, default=50, help='Maximum concurrent connections (default: 50)')
     parser.add_argument('--safe-mode', action='store_true', help='Enable safe mode (non-intrusive scans only)')
+    parser.add_argument('--allow-public', action='store_true',
+                        help='Permit scanning of publicly-routable / non-private addresses (requires authorization)')
+    parser.add_argument('--i-am-authorized', action='store_true',
+                        help='Assert you hold written authorization for this scope; skips the interactive confirmation')
     parser.add_argument('--exclude', help='File containing IPs to exclude from scan')
     parser.add_argument('-v', '--verbosity', type=int, choices=[0, 1, 2], default=1, 
                         help='Verbosity level: 0=quiet, 1=normal, 2=debug (default: 1)')
@@ -2040,6 +2194,13 @@ if __name__ == "__main__":
     else:  # verbosity == 2
         logging.getLogger().setLevel(logging.DEBUG)
     
+    # Safety gate: verify scope and authorization BEFORE any packets are sent.
+    try:
+        authorization_preflight(args)
+    except FileNotFoundError:
+        logger.error(f"CIDR file not found: {args.cidr_file}")
+        sys.exit(1)
+
     try:
         asyncio.run(main(args))
     except KeyboardInterrupt:

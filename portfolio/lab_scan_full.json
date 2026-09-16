@@ -1,0 +1,115 @@
+{
+  "scan_summary": {
+    "timestamp": "2026-09-16T03:52:38.624608+00:00",
+    "total_hosts_scanned": 1,
+    "hosts_with_scada": 1,
+    "total_vulnerabilities": 0,
+    "high_risk_hosts": 0
+  },
+  "hosts": [
+    {
+      "ip": "127.0.0.1",
+      "ports": [
+        {
+          "port": 502,
+          "protocol": "MODBUS",
+          "fingerprint": {
+            "protocol": "MODBUS",
+            "confidence": 0.25,
+            "vendor": "Schneider Electric",
+            "product": "BMXP342020",
+            "version": "2.60",
+            "vulnerabilities": [],
+            "risk_score": 0.25,
+            "behaviors": [
+              {
+                "type": "device_info",
+                "detail": "Device supports device identification",
+                "confidence": 0.9
+              }
+            ],
+            "findings": [
+              "Detected MODBUS protocol (confidence: 0.25)",
+              "Behavior: device_info - Device supports device identification",
+              "Detected version: 2.60",
+              "Device identification: vendor=Schneider Electric, product=BMXP342020",
+              "MODBUS is insecure by design (unencrypted/unauthenticated)",
+              "Overall risk assessment: Medium (score: 0.25)"
+            ],
+            "evidence": [
+              "pattern:5c7830305b5c7830302d5c7866665d7b327d5c7830305c7830305b5c7830302d5c7830385d",
+              "port_hint:502"
+            ],
+            "unexpected_port": false,
+            "version_details": {
+              "0": "Schneider Electric",
+              "1": "BMXP342020",
+              "2": "2.60"
+            }
+          }
+        }
+      ],
+      "protocols": [
+        "MODBUS"
+      ],
+      "vendors": [
+        "Schneider Electric"
+      ],
+      "products": [
+        "BMXP342020"
+      ],
+      "vulnerabilities": [],
+      "max_risk_score": 0.25
+    }
+  ],
+  "raw_results": [
+    {
+      "ip": "127.0.0.1",
+      "port": 502,
+      "protocol": "MODBUS",
+      "response": "000100000003008001",
+      "response_hash": "4bd44222898ed7f77d90ea921c635085",
+      "timestamp": "2026-09-16T03:51:21.278338+00:00",
+      "connection_id": "8566",
+      "fingerprint": {
+        "protocol": "MODBUS",
+        "confidence": 0.25,
+        "vendor": "Schneider Electric",
+        "product": "BMXP342020",
+        "version": "2.60",
+        "vulnerabilities": [],
+        "risk_score": 0.25,
+        "behaviors": [
+          {
+            "type": "device_info",
+            "detail": "Device supports device identification",
+            "confidence": 0.9
+          }
+        ],
+        "findings": [
+          "Detected MODBUS protocol (confidence: 0.25)",
+          "Behavior: device_info - Device supports device identification",
+          "Detected version: 2.60",
+          "Device identification: vendor=Schneider Electric, product=BMXP342020",
+          "MODBUS is insecure by design (unencrypted/unauthenticated)",
+          "Overall risk assessment: Medium (score: 0.25)"
+        ],
+        "evidence": [
+          "pattern:5c7830305b5c7830302d5c7866665d7b327d5c7830305c7830305b5c7830302d5c7830385d",
+          "port_hint:502"
+        ],
+        "unexpected_port": false,
+        "version_details": {
+          "0": "Schneider Electric",
+          "1": "BMXP342020",
+          "2": "2.60"
+        }
+      },
+      "metadata": {
+        "scan_time": "2026-09-16T03:51:49.489915+00:00",
+        "scanner_version": "0.3",
+        "risk_score": 0.25
+      }
+    }
+  ]
+}

@@ -138,3 +138,46 @@ def test_risk_score_unexpected_port_bump(scanner):
     base_score = scanner._calculate_risk_score(base_fp)
     bumped_score = scanner._calculate_risk_score(bumped_fp)
     assert bumped_score > base_score
+
+
+# ---------------------------------------------------------------------------
+# Regression tests for probe-selection and Modbus device-identification parsing
+# (fixes for two bugs found while validating against a lab Modbus simulator).
+# ---------------------------------------------------------------------------
+
+def test_portprotocol_transport_and_protocol_fields():
+    """The 502 entry must expose transport='TCP' and protocol='MODBUS'.
+
+    Previously the transport string landed in the `protocol` field, so probe
+    selection keyed on the transport ('TCP') and fell through to a null probe.
+    """
+    port = next(p for p in SCADA_PORTS if p.port == 502)
+    assert port.transport == "TCP"
+    assert port.protocol == "MODBUS"
+
+
+def test_protocol_probe_selected_by_protocol_name(scanner):
+    """A real Modbus probe (not the all-zero default) is chosen for port 502."""
+    port = next(p for p in SCADA_PORTS if p.port == 502)
+    probe = scanner._get_protocol_probe(port.protocol)
+    assert probe.hex() == "0001000000020000"
+    assert probe != b"\x00" * 8
+
+
+def test_parse_modbus_device_identification(scanner):
+    """Read Device Identification (FC 0x2B/0x0E) response is parsed correctly.
+
+    Response carries VendorName=obj0, ProductCode=obj1, MajorMinorRevision=obj2.
+    The parser previously read the object count/offsets from the wrong bytes.
+    """
+    response = bytes.fromhex(
+        "00010000002e012b0e0183000003"      # MBAP + device-id header, 3 objects
+        "00125363686e656964657220456c656374726963"  # obj0: "Schneider Electric"
+        "010a424d5850333432303230"          # obj1: "BMXP342020"
+        "0204322e3630"                       # obj2: "2.60"
+    )
+    parsed = scanner._parse_modbus_version(response)
+    assert parsed is not None
+    assert parsed["version"] == "2.60"
+    assert parsed["details"][0] == "Schneider Electric"
+    assert parsed["details"][1] == "BMXP342020"
